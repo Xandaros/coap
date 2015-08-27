@@ -1,9 +1,14 @@
 module Data.Coap ( module Data.Coap.Types
+                 , XEnum(..)
+                 , parseMessage
                  ) where
 
 import qualified Data.ByteString.Lazy as BS
 
 import Control.Lens
+import Control.Monad
+import Control.Monad.Trans
+import Control.Monad.Trans.Either
 
 import Data.Binary.Get
 import Data.Binary.Bits.Get as Bits ( word8
@@ -15,35 +20,50 @@ import Data.Binary.Bits.Get as Bits ( word8
                                     )
 
 import Data.Coap.Types
+import Data.Coap.Internal
 
-parseMessage :: BS.ByteString -> Message
-parseMessage = runGet messageParser
+type ET = EitherT String
 
-messageParser :: Get Message
+runOrFail :: BS.ByteString -> ET Get Message -> Either String Message
+runOrFail dat = join . bimap getThird getThird . flip runGetOrFail dat . runEitherT
+  where
+    getThird (a,b,c) = c
+
+runBG :: ET BitGet a -> ET Get a
+runBG = EitherT . runBitGet . runEitherT
+
+parseMessage :: BS.ByteString -> Either String Message
+parseMessage str = runOrFail str messageParser
+  where
+    getThird (a,b,c) = c
+
+messageParser :: ET Get Message
 messageParser = do
-  header <- runBitGet (block headerBlock)
+  header <- runBG headerBlock
   Message <$> return header
-          <*> runBitGet parseCode
-          <*> getWord16be
-          <*> getByteString (fromIntegral $ header^.tokenLength)
-          <*> return []
-          <*> return mempty
+          <*> runBG parseCode
+          <*> lift getWord16be
+          <*> lift (getByteString (fromIntegral $ header^.tokenLength))
+          <*> lift (return [])
+          <*> lift (return mempty)
 
-headerBlock :: Block MessageHeader
+headerBlock :: ET BitGet MessageHeader
 headerBlock =
-  MessageHeader <$> word8 2
+  MessageHeader <$> lift (Bits.getWord8 2)
                 <*> typeBlock
-                <*> word8 4
+                <*> lift (Bits.getWord8 4)
 
-typeBlock :: Block Type
-typeBlock = toEnum . fromIntegral <$> word8 2
+typeBlock :: ET BitGet Type
+typeBlock = EitherT $ toxEnum . fromIntegral <$> Bits.getWord8 2
 
-parseCode :: BitGet Code
+  --toxEnum . fromIntegral <$> word8 2
+
+parseCode :: ET BitGet Code
 parseCode = do
-  clazz <- fromIntegral <$> Bits.getWord8 3
-  detail <- fromIntegral <$> Bits.getWord8 5
-  return $ case clazz of
-    0 -> MethodCode $ toEnum detail
-    2 -> ResponseCode . SuccessCode $ toEnum detail
-    4 -> ResponseCode . ClientErrorCode $ toEnum detail
-    5 -> ResponseCode . ServerErrorCode $ toEnum detail
+  clazz <- lift $ fromIntegral <$> Bits.getWord8 3
+  detail <- lift $ fromIntegral <$> Bits.getWord8 5
+  case clazz of
+    0 -> MethodCode <$> (hoistEither . toxEnum $ detail)
+    2 -> ResponseCode . SuccessCode <$> (hoistEither . toxEnum $ detail)
+    4 -> ResponseCode . ClientErrorCode <$> (hoistEither . toxEnum $ detail)
+    5 -> ResponseCode . ServerErrorCode <$> (hoistEither . toxEnum $ detail)

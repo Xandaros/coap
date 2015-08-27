@@ -14,26 +14,27 @@ declareLenses [d|
                            , token         :: !ByteString
                            , option        :: ![Option]
                            , payload       :: !ByteString
-                           }
+                           } deriving (Show)
 
     data MessageHeader = MessageHeader { version     :: !Word8
                                        , typ         :: !Type
                                        , tokenLength :: !Word8
-                                       }
+                                       } deriving (Show)
     
     data Type = CON
               | NON
               | ACK
               | RST
-              deriving (Eq)
+              deriving (Show, Eq)
     
     data Code = MethodCode MethodCode
               | ResponseCode ResponseCode
-              deriving (Eq)
+              deriving (Show, Eq)
     
-    data MethodCode = GET
-                    | PUT
+    data MethodCode = EMPTY
+                    | GET
                     | POST
+                    | PUT
                     | DELETE
                     deriving (Show, Eq)
     
@@ -50,6 +51,7 @@ declareLenses [d|
                      deriving (Show, Eq)
     
     data Option = Option
+      deriving (Show)
     
     data ClientErrorCode = CECPH
                          deriving (Show, Eq)
@@ -59,7 +61,7 @@ declareLenses [d|
     |]
 
 generateEnum ''Type 0
-generateEnum ''MethodCode 1
+generateEnum ''MethodCode 0
 generateEnum ''SuccessCode 1
 generateEnum ''ClientErrorCode 1
 generateEnum ''ServerErrorCode 0
