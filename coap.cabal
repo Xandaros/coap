@@ -7,7 +7,7 @@ synopsis:            CoAP Implementation in Haskell
 -- description:         
 license:             BSD2
 license-file:        LICENSE
-author:              Xandaros
+author:              Martin Zeller
 maintainer:          mz.bremerhaven@gmail.com
 -- copyright:           
 category:            Network
