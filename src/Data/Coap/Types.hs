@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Data.Coap.Types where
-import Data.ByteString
+import Data.ByteString.Lazy
 import Data.Word
 
 import Control.Lens

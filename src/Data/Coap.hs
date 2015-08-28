@@ -45,9 +45,13 @@ messageParser = do
   preMsg <- Message <$> return header
                     <*> runBG parseCode
                     <*> lift getWord16be
-                    <*> lift (getByteString (fromIntegral $ header^.tokenLength))
+                    <*> lift (getLazyByteString (fromIntegral $ header^.tokenLength))
   (opts, plPresent) <- parseOptions
-  lift . return $ preMsg opts mempty
+  empty <- lift isEmpty
+  pl <- if plPresent && empty
+          then left "Message format error: Options terminated but no payload"
+          else lift (skip 1 >> getRemainingLazyByteString)
+  lift . return $ preMsg opts pl
 
 headerBlock :: ET BitGet MessageHeader
 headerBlock =
@@ -98,7 +102,7 @@ parseOption = do
     14 -> lift $ ((+269) . fromIntegral) <$> getWord16be
     13 -> lift $ ((+13)  . fromIntegral) <$> Bytes.getWord8
     _  -> return $ fromIntegral length
-  value <- lift $ getByteString (fromIntegral (trace ("Length: " ++ show length') length'))
+  value <- lift $ getLazyByteString (fromIntegral (trace ("Length: " ++ show length') length'))
   return (Option delta' length' value)
 
 parseOptionHeader :: ET BitGet (Word8, Word8)
