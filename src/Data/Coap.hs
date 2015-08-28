@@ -4,13 +4,15 @@ module Data.Coap ( module Data.Coap.Types
                  ) where
 
 import qualified Data.ByteString.Lazy as BS
+import Debug.Trace (traceShowId, trace)
+import Data.Word
 
 import Control.Lens
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Either
 
-import Data.Binary.Get
+import Data.Binary.Get as Bytes
 import Data.Binary.Bits.Get as Bits ( word8
                                     , getWord8
                                     , BitGet
@@ -40,12 +42,12 @@ parseMessage str = runOrFail str messageParser
 messageParser :: ET Get Message
 messageParser = do
   header <- runBG headerBlock
-  Message <$> return header
-          <*> runBG parseCode
-          <*> lift getWord16be
-          <*> lift (getByteString (fromIntegral $ header^.tokenLength))
-          <*> lift (return [])
-          <*> lift (return mempty)
+  preMsg <- Message <$> return header
+                    <*> runBG parseCode
+                    <*> lift getWord16be
+                    <*> lift (getByteString (fromIntegral $ header^.tokenLength))
+  (opts, plPresent) <- parseOptions
+  lift . return $ preMsg opts mempty
 
 headerBlock :: ET BitGet MessageHeader
 headerBlock =
@@ -67,3 +69,40 @@ parseCode = do
     2 -> ResponseCode . SuccessCode <$> (hoistEither . toxEnum $ detail)
     4 -> ResponseCode . ClientErrorCode <$> (hoistEither . toxEnum $ detail)
     5 -> ResponseCode . ServerErrorCode <$> (hoistEither . toxEnum $ detail)
+    a -> error $ "Invalid code: " ++ show a
+
+parseOptions :: ET Get ([Option], Bool)
+parseOptions = do
+  empty <- lift isEmpty
+  if empty
+    then return ([], False)
+    else do
+      firstByte <- lift $ lookAhead Bytes.getWord8
+      if firstByte == 0xFF
+        then return ([], True)
+        else do
+          option <- parseOption
+          (nextOpts, f) <- parseOptions
+          return (option:nextOpts, f)
+
+parseOption :: ET Get Option
+parseOption = do
+  (delta, length) <- runBG parseOptionHeader
+  delta' <- case delta of
+    15 -> left "Message format error: Invalid option delta"
+    14 -> lift $ ((+269) . fromIntegral) <$> getWord16be
+    13 -> lift $ ((+13)  . fromIntegral) <$> Bytes.getWord8
+    _  -> return $ fromIntegral delta
+  length' <- case length of
+    15 -> left "Message format error: Invalid option length"
+    14 -> lift $ ((+269) . fromIntegral) <$> getWord16be
+    13 -> lift $ ((+13)  . fromIntegral) <$> Bytes.getWord8
+    _  -> return $ fromIntegral length
+  value <- lift $ getByteString (fromIntegral (trace ("Length: " ++ show length') length'))
+  return (Option delta' length' value)
+
+parseOptionHeader :: ET BitGet (Word8, Word8)
+parseOptionHeader = do
+  delta  <- lift $ Bits.getWord8 4
+  length <- lift $ Bits.getWord8 4
+  return (delta, length)

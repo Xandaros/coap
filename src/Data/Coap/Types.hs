@@ -50,8 +50,11 @@ declareLenses [d|
                      | Content
                      deriving (Show, Eq)
     
-    data Option = Option
-      deriving (Show)
+    data Option = Option { delta :: Word32
+                         , length :: Word32
+                         , value :: ByteString
+                         }
+                         deriving (Show)
     
     data ClientErrorCode = CECPH
                          deriving (Show, Eq)
