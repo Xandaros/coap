@@ -12,7 +12,7 @@ declareLenses [d|
                            , code          :: !Code
                            , messageId     :: !Word16
                            , token         :: !ByteString
-                           , option        :: ![Option]
+                           , option        :: ![DOption]
                            , payload       :: !ByteString
                            } deriving (Show)
 
@@ -50,10 +50,10 @@ declareLenses [d|
                      | Content
                      deriving (Show, Eq)
     
-    data Option = Option { delta :: Word32
-                         , length :: Word32
-                         , value :: ByteString
-                         }
+    data DOption = DOption { delta :: Word32
+                           , length :: Word32
+                           , value :: ByteString
+                           }
                          deriving (Show)
     
     data ClientErrorCode = CECPH

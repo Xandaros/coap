@@ -75,7 +75,7 @@ parseCode = do
     5 -> ResponseCode . ServerErrorCode <$> (hoistEither . toxEnum $ detail)
     a -> error $ "Invalid code: " ++ show a
 
-parseOptions :: ET Get ([Option], Bool)
+parseOptions :: ET Get ([DOption], Bool)
 parseOptions = do
   empty <- lift isEmpty
   if empty
@@ -89,7 +89,7 @@ parseOptions = do
           (nextOpts, f) <- parseOptions
           return (option:nextOpts, f)
 
-parseOption :: ET Get Option
+parseOption :: ET Get DOption
 parseOption = do
   (delta, length) <- runBG parseOptionHeader
   delta' <- case delta of
@@ -103,7 +103,7 @@ parseOption = do
     13 -> lift $ ((+13)  . fromIntegral) <$> Bytes.getWord8
     _  -> return $ fromIntegral length
   value <- lift $ getLazyByteString (fromIntegral (trace ("Length: " ++ show length') length'))
-  return (Option delta' length' value)
+  return (DOption delta' length' value)
 
 parseOptionHeader :: ET BitGet (Word8, Word8)
 parseOptionHeader = do
