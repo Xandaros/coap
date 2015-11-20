@@ -1,5 +1,7 @@
 module Network.Coap.CoapServer where
 
+import Control.Exception (catch, AsyncException(UserInterrupt))
+
 import qualified Data.ByteString.Lazy as BS
 import Data.Coap
 
@@ -11,7 +13,7 @@ startCoapServer = do
   sock <- socket AF_INET Datagram defaultProtocol
   addr <- inet_addr "127.0.0.1"
   bind sock (SockAddrInet 5683 addr)
-  coapThread sock
+  catch (coapThread sock) (\(UserInterrupt) -> close sock)
   close sock
 
 coapThread :: Socket -> IO ()
