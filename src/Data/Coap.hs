@@ -1,17 +1,22 @@
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 module Data.Coap ( module Data.Coap.Types
                  , XEnum(..)
                  , parseMessage
                  ) where
 
 import qualified Data.ByteString.Lazy as BS
-import Debug.Trace (traceShowId, trace)
+import Debug.Trace (traceShowId, trace, traceM)
 import Data.Word
 
 import Control.Lens
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Either
+import Data.Monoid ((<>))
 
+import qualified Data.Binary as Binary
 import Data.Binary.Get as Bytes
 import Data.Binary.Bits.Get as Bits ( word8
                                     , getWord8
@@ -39,6 +44,38 @@ parseMessage str = runOrFail str messageParser
   where
     getThird (a,b,c) = c
 
+addOption :: RawOption -> Options -> Options
+addOption ro ops = case view optionNo ro of
+  1  -> insertPrim ifMatch
+  3  -> insertMaybe uriHost
+  4  -> insertPrim eTag
+  5  -> case view ifNoneMatch ops of
+    False -> set ifNoneMatch True ops
+    True -> over unknownOptions (<> [ro]) ops
+  7  -> insertMaybeWith uriPort (trace "asd" Binary.decode)
+  8  -> insertPrim locationPath
+  11 -> insertPrim uriPath
+  12 -> insertMaybeWith contentFormat (trace "fgh" Binary.decode)
+  14 -> insertMaybeWith maxAge (trace "jkl" Binary.decode)
+  15 -> insertPrim uriQuery
+  17 -> insertMaybeWith accept (trace "qwe" Binary.decode)
+  20 -> insertPrim locationQuery
+  35 -> insertMaybe proxyUri
+  39 -> insertMaybe proxyScheme
+  60 -> insertMaybeWith size1 (trace "rtz" Binary.decode)
+  where
+    insertPrim :: ASetter' Options [BS.ByteString] -> Options
+    insertPrim setter = over setter (<> [view value ro]) ops
+    insertMaybeWith :: Lens' Options (Maybe a) -> (BS.ByteString -> a) -> Options
+    insertMaybeWith setter f = case view setter ops of
+      Nothing -> set setter (Just . f $ view value ro) ops
+      Just x -> over unknownOptions (<> [ro]) ops
+    insertMaybe :: Lens' Options (Maybe BS.ByteString) -> Options
+    insertMaybe setter = insertMaybeWith setter id
+
+getOptions :: [RawOption] -> Options
+getOptions = foldr addOption defaultOptions
+
 messageParser :: ET Get Message
 messageParser = do
   header <- runBG headerBlock
@@ -47,10 +84,13 @@ messageParser = do
                     <*> lift getWord16be
                     <*> lift (getLazyByteString (fromIntegral $ header^.tokenLength))
   (opts, plPresent) <- parseOptions
+  traceM (show (getOptions opts))
   empty <- lift isEmpty
   pl <- if plPresent && empty
           then left "Message format error: Options terminated but no payload"
-          else lift (skip 1 >> getRemainingLazyByteString)
+          else if plPresent
+            then lift (skip 1 >> getRemainingLazyByteString)
+            else pure ""
   lift . return $ preMsg opts pl
 
 headerBlock :: ET BitGet MessageHeader
@@ -75,8 +115,11 @@ parseCode = do
     5 -> ResponseCode . ServerErrorCode <$> (hoistEither . toxEnum $ detail)
     a -> error $ "Invalid code: " ++ show a
 
-parseOptions :: ET Get ([DOption], Bool)
-parseOptions = do
+parseOptions :: ET Get ([RawOption], Bool)
+parseOptions = parseOptions' 0
+
+parseOptions' :: Word32 -> ET Get ([RawOption], Bool)
+parseOptions' offset = do
   empty <- lift isEmpty
   if empty
     then return ([], False)
@@ -85,11 +128,16 @@ parseOptions = do
       if firstByte == 0xFF
         then return ([], True)
         else do
-          option <- parseOption
-          (nextOpts, f) <- parseOptions
+          option <- addOffset offset <$> parseOption
+          (nextOpts, f) <- parseOptions' (getOffset option)
           return (option:nextOpts, f)
+  where
+    addOffset :: Word32 -> RawOption -> RawOption
+    addOffset offs opt = over optionNo (+offs) opt
+    getOffset :: RawOption -> Word32
+    getOffset = view optionNo
 
-parseOption :: ET Get DOption
+parseOption :: ET Get RawOption
 parseOption = do
   (delta, length) <- runBG parseOptionHeader
   delta' <- case delta of
@@ -103,7 +151,7 @@ parseOption = do
     13 -> lift $ ((+13)  . fromIntegral) <$> Bytes.getWord8
     _  -> return $ fromIntegral length
   value <- lift $ getLazyByteString (fromIntegral (trace ("Length: " ++ show length') length'))
-  return (DOption delta' length' value)
+  return (RawOption delta' length' value)
 
 parseOptionHeader :: ET BitGet (Word8, Word8)
 parseOptionHeader = do
