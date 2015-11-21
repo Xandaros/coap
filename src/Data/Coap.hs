@@ -25,6 +25,7 @@ import Data.Binary.Bits.Get as Bits ( word8
                                     , block
                                     , Block
                                     )
+import Data.Bits (shiftL, Bits())
 
 import Data.Coap.Types
 import Data.Coap.Internal
@@ -52,17 +53,17 @@ addOption ro ops = case view optionNo ro of
   5  -> case view ifNoneMatch ops of
     False -> set ifNoneMatch True ops
     True -> over unknownOptions (<> [ro]) ops
-  7  -> insertMaybeWith uriPort (trace "asd" Binary.decode)
+  7  -> insertMaybeWith uriPort (trace "asd" decodeInt)
   8  -> insertPrim locationPath
   11 -> insertPrim uriPath
-  12 -> insertMaybeWith contentFormat (trace "fgh" Binary.decode)
-  14 -> insertMaybeWith maxAge (trace "jkl" Binary.decode)
+  12 -> insertMaybeWith contentFormat (trace "fgh" decodeInt)
+  14 -> insertMaybeWith maxAge (trace "jkl" decodeInt)
   15 -> insertPrim uriQuery
-  17 -> insertMaybeWith accept (trace "qwe" Binary.decode)
+  17 -> insertMaybeWith accept (trace "qwe" decodeInt)
   20 -> insertPrim locationQuery
   35 -> insertMaybe proxyUri
   39 -> insertMaybe proxyScheme
-  60 -> insertMaybeWith size1 (trace "rtz" Binary.decode)
+  60 -> insertMaybeWith size1 (trace "rtz" decodeInt)
   where
     insertPrim :: ASetter' Options [BS.ByteString] -> Options
     insertPrim setter = over setter (<> [view value ro]) ops
@@ -72,6 +73,8 @@ addOption ro ops = case view optionNo ro of
       Just x -> over unknownOptions (<> [ro]) ops
     insertMaybe :: Lens' Options (Maybe BS.ByteString) -> Options
     insertMaybe setter = insertMaybeWith setter id
+    decodeInt :: (Integral a, Bits a) => BS.ByteString -> a
+    decodeInt = getPartialInt . BS.unpack
 
 getOptions :: [RawOption] -> Options
 getOptions = foldr addOption defaultOptions
@@ -158,3 +161,11 @@ parseOptionHeader = do
   delta  <- lift $ Bits.getWord8 4
   length <- lift $ Bits.getWord8 4
   return (delta, length)
+
+getPartialInt :: (Integral a, Bits a) => [Word8] -> a
+getPartialInt [] = 0
+getPartialInt [a] = fromIntegral $ a
+getPartialInt [a,b] = (fromIntegral a) `shiftL` 8 + fromIntegral b
+getPartialInt [a,b,c] = (fromIntegral a) `shiftL` 16 + (fromIntegral b) `shiftL` 8 + fromIntegral c
+getPartialInt [a,b,c,d] = (fromIntegral a) `shiftL` 24 + (fromIntegral b) `shiftL` 16 + (fromIntegral c) `shiftL` 8 + fromIntegral d
+getPartialInt _ = 0
